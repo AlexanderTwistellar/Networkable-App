@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>WinningSpecifierIsRequired</fullName>
+    <active>true</active>
+    <description>The field &quot;Winning Specifier&quot;  is mandatory when opportunity is closed.</description>
+    <errorConditionFormula>AND (
+  OR (
+     ISPICKVAL(StageName, &quot;Closed Won&quot;),
+     ISPICKVAL(StageName, &quot;Closed lost&quot;),
+     ISPICKVAL(StageName, &quot;No Bid&quot;)),
+ISBLANK( Winning_Specifier__c )
+)</errorConditionFormula>
+    <errorDisplayField>Winning_Specifier__c</errorDisplayField>
+    <errorMessage>The field &quot;Winning Specifier&quot; is mandatory. Please fiil in the field.</errorMessage>
+</ValidationRule>
