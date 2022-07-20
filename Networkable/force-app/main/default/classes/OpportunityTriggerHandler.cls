@@ -4,6 +4,7 @@ public with sharing class OpportunityTriggerHandler extends TriggerHandler {
     private static final String STAGE_CLOSED_LOST = 'Closed Lost';
     private static final String STAGE_NO_BID = 'No Bid';
     private static final Integer DEFAULT_INFLUENT_WEIGHT = 0;
+    private static final Integer ZERO = 0;
 
     List<Opportunity> triggerRecordsList = (List<Opportunity>) Trigger.new;
 
@@ -12,9 +13,9 @@ public with sharing class OpportunityTriggerHandler extends TriggerHandler {
         Set<Id> oppIds = new Set<Id>();
         for (Opportunity op : triggerRecordsList) {
             if ((op.StageName == STAGE_CLOSED_WON || op.StageName == STAGE_CLOSED_LOST || op.StageName == STAGE_NO_BID) &&
-            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_CLOSED_WON) &&
+            ((((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_CLOSED_WON) &&
             (((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_CLOSED_LOST) &&
-            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_NO_BID)) {
+            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_NO_BID))) {
                 oppIds.add(op.id);
             }
         }
@@ -59,9 +60,9 @@ public with sharing class OpportunityTriggerHandler extends TriggerHandler {
         Set<Id> oppIds = new Set<Id>();
         for (Opportunity op : triggerRecordsList) {
             if ((op.StageName != STAGE_CLOSED_WON && op.StageName != STAGE_CLOSED_LOST && op.StageName != STAGE_NO_BID) &&
-            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_CLOSED_WON) ||
+            ((((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_CLOSED_WON) ||
             (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_CLOSED_LOST) ||
-            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_NO_BID)) {
+            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_NO_BID))) {
                 oppIds.add(op.id);
             }
         }
@@ -82,13 +83,136 @@ public with sharing class OpportunityTriggerHandler extends TriggerHandler {
         }
     }
 
-    public override void afterInsert() {
-        updateRelatedONR();
+    public void updateComNetPrimaryAccountFields() {
+        Set<Id> oppIds = new Set<Id>();
+        for (Opportunity op : triggerRecordsList) {
+            if (
+                (op.StageName == STAGE_CLOSED_WON && ((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_CLOSED_WON) ||
+                (op.StageName == STAGE_CLOSED_LOST && ((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_CLOSED_LOST) ||
+                ((op.StageName != STAGE_CLOSED_WON && op.StageName != STAGE_CLOSED_LOST && op.StageName != STAGE_NO_BID) && 
+                    (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_CLOSED_WON) ||
+                    (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_CLOSED_LOST) ||
+                    (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_NO_BID)
+                ) ||
+                ((op.Amount != (((Opportunity)Trigger.oldMap.get(op.Id)).Amount)) && op.StageName != STAGE_NO_BID) 
+            ) {
+                oppIds.add(op.Id);
+            }
+        }
+        Set<Id> accountIds = new Set<Id>();
+        for (Community_Network__c comm : [SELECT Id, Primary_Account__c, Opportunity__c FROM Community_Network__c WHERE Opportunity__r.Id IN :oppIds]) {
+            accountIds.add(comm.Primary_Account__c);
+        }
+        if (accountIds.size() > 0) {
+            updateAccountRollUpFields(accountIds);
+        }
+    }
+
+    public static void updateAccountRollUpFields(Set<Id> accIds) {
+        List<Account> listAccountsToUpdate = [
+            SELECT 
+                Id, Name, Open__c , Won__c, Lost__c, Relationships__c, Conversion__c, Open_Value__c, Lost_Value__c, Won_Value__c, 
+                Relationship_Value__c, Average_Won_Value__c
+            FROM Account 
+            WHERE Id IN :accIds
+        ];
+        List<Community_Network__c> relatedComNetRecList = [
+            SELECT 
+                Id, Primary_Account__c, Opportunity__r.Id, Opportunity__r.StageName, Opportunity__r.Amount 
+            FROM Community_Network__c
+            WHERE Primary_Account__c IN :accIds
+        ];
+        Set<Id> allRelatedOppIds = new Set<Id>();
+        for (Community_Network__c comN : relatedComNetRecList) {
+            allRelatedOppIds.add(comN.Opportunity__r.Id);
+        }
+        List<Opportunity> relatedOppsList = [SELECT Id, StageName, Amount FROM Opportunity WHERE Id IN :allRelatedOppIds];
+        
+        Integer numberOpenOpps;
+        Integer numberWonOpps;
+        Integer numberLostOpps;
+        Integer Conversion;
+        Decimal amountOpenOpps;
+        Decimal amountWonOpps;
+        Decimal amountLostOpps;
+        Decimal allOppsAmount;
+        Decimal averageOppsAmount;
+        Integer numberAllOpps;
+
+        for (Account acc : listAccountsToUpdate) {
+            Set<Opportunity> oppsReletedToPrimaryAcc = new Set<Opportunity>();
+            acc.Open__c = ZERO;
+            acc.Won__c = ZERO; 
+            acc.Lost__c = ZERO; 
+            acc.Relationships__c = ZERO;
+            acc.Conversion__c = ZERO;
+            acc.Open_Value__c = ZERO; 
+            acc.Lost_Value__c = ZERO;
+            acc.Won_Value__c = ZERO;
+            acc.Relationship_Value__c = ZERO;
+            acc.Average_Won_Value__c = ZERO;
+            numberOpenOpps = ZERO;
+            numberWonOpps = ZERO;
+            numberLostOpps = ZERO;
+            Conversion = ZERO;
+            amountOpenOpps = ZERO;
+            amountWonOpps = ZERO;
+            amountLostOpps = ZERO;
+            allOppsAmount = ZERO;
+            averageOppsAmount = ZERO;
+            numberAllOpps = ZERO;
+            for (Community_Network__c comNet : relatedComNetRecList) {
+                if (comNet.Primary_Account__c == acc.Id) {
+                    for (Opportunity oppRec : relatedOppsList) {
+                        if (comNet.Opportunity__c == oppRec.Id) {
+                            oppsReletedToPrimaryAcc.add(oppRec);
+                        }
+                    }
+                }
+            }
+            for (Opportunity oppRecord : oppsReletedToPrimaryAcc) {
+                numberAllOpps++;
+                if ((oppRecord.StageName != STAGE_CLOSED_WON) && (oppRecord.StageName != STAGE_CLOSED_LOST) && (oppRecord.StageName !=STAGE_NO_BID)) {
+                    numberOpenOpps++;
+                }
+                if (oppRecord.StageName == STAGE_CLOSED_WON) {
+                    numberWonOpps++;
+                }
+                if (oppRecord.StageName == STAGE_CLOSED_LOST) {
+                    numberLostOpps++;
+                }
+                if (oppRecord.Amount != null && ((oppRecord.StageName != STAGE_CLOSED_WON) && (oppRecord.StageName != STAGE_CLOSED_LOST) && (oppRecord.StageName !=STAGE_NO_BID))) {
+                    amountOpenOpps += oppRecord.Amount;
+                }
+                if (oppRecord.Amount != null && oppRecord.StageName == STAGE_CLOSED_WON) {
+                    amountWonOpps += oppRecord.Amount;
+                }
+                if (oppRecord.Amount != null && oppRecord.StageName == STAGE_CLOSED_LOST) {
+                    amountLostOpps += oppRecord.Amount;
+                }
+                if (oppRecord.Amount != null) {
+                    allOppsAmount += oppRecord.Amount;
+                }
+            }
+            Conversion = (numberWonOpps/(numberWonOpps + numberLostOpps))*100;
+            averageOppsAmount = allOppsAmount/numberAllOpps;
+
+            acc.Open__c = numberOpenOpps;
+            acc.Won__c = numberWonOpps;
+            acc.Lost__c = numberLostOpps;
+            acc.Conversion__c = Conversion;
+            acc.Open_Value__c = amountOpenOpps;
+            acc.Lost_Value__c = amountLostOpps;
+            acc.Won_Value__c = amountWonOpps;
+            acc.Relationship_Value__c = allOppsAmount;
+            acc.Average_Won_Value__c = averageOppsAmount;
+        }
+        update listAccountsToUpdate;
     }
 
     public override void afterUpdate() {
         updateRelatedONR();
         deleteNotPrimaryCommNetRecordsWhenOppReopen();
+        updateComNetPrimaryAccountFields();
     }
-
 }
