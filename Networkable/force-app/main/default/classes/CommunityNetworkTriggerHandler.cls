@@ -1,6 +1,7 @@
 public with sharing class CommunityNetworkTriggerHandler extends TriggerHandler {
 
     List<Community_Network__c> triggerRecordsList = (List<Community_Network__c>) Trigger.new;
+    List<Community_Network__c> triggerOldRecordList = (List<Community_Network__c>) Trigger.old;
 
     public void populateRecordFields() {
         List<Roles_Managment__mdt> roleManagmentList = Roles_Managment__mdt.getAll().values();
@@ -36,6 +37,41 @@ public with sharing class CommunityNetworkTriggerHandler extends TriggerHandler 
         }
     }
 
+    public void updatePrimaryAccountsAfterCreateRecord() {
+        Set<Id> accountIds = new Set<Id>();
+        for (Community_Network__c comNet : triggerRecordsList) {
+            accountIds.add(comNet.Primary_Account__c);
+        }
+        if (accountIds.size() > 0) {
+            OpportunityTriggerHandler.updateAccountRollUpFields(accountIds);
+        }
+    }
+
+    public void updatePrimaryAccountsAfterUpdateRecord() {
+        Set<Id> accountIds = new Set<Id>();
+        for (Community_Network__c comNet : triggerRecordsList) {
+            if (
+                (comNet.Opportunity__c != ((Community_Network__c)Trigger.oldMap.get(comNet.Id)).Opportunity__c) ||
+                (comNet.Primary_Account__c != ((Community_Network__c)Trigger.oldMap.get(comNet.Id)).Primary_Account__c)
+            ) {
+                accountIds.add(comNet.Primary_Account__c);
+            }
+        }
+        if (accountIds.size() > 0) {
+            OpportunityTriggerHandler.updateAccountRollUpFields(accountIds);
+        }
+    }
+
+    public void updatePrimaryAccountsAfterDeleteRecord() {
+        Set<Id> accountIds = new Set<Id>();
+        for (Community_Network__c comNet : triggerOldRecordList) {
+            accountIds.add(comNet.Primary_Account__c);
+        }
+        if (accountIds.size() > 0) {
+            OpportunityTriggerHandler.updateAccountRollUpFields(accountIds);
+        }
+    }
+
     public override void beforeInsert() {
         populateRecordFields();
         makeCommunityNetworkRecordIsPrimary();
@@ -43,6 +79,18 @@ public with sharing class CommunityNetworkTriggerHandler extends TriggerHandler 
 
     public override void beforeUpdate() {
         populateRecordFields();
+    }
+
+    public override void afterInsert() {
+        updatePrimaryAccountsAfterCreateRecord();
+    }
+
+    public override void afterUpdate() {
+        updatePrimaryAccountsAfterUpdateRecord();
+    }
+
+    public override void afterDelete() {
+        updatePrimaryAccountsAfterDeleteRecord();
     }
 
 }
