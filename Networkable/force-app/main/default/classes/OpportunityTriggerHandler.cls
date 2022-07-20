@@ -14,7 +14,7 @@ public with sharing class OpportunityTriggerHandler extends TriggerHandler {
             if ((op.StageName == STAGE_CLOSED_WON || op.StageName == STAGE_CLOSED_LOST || op.StageName == STAGE_NO_BID) &&
             (((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_CLOSED_WON) &&
             (((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_CLOSED_LOST) &&
-            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_NO_BID) ) {
+            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName != STAGE_NO_BID)) {
                 oppIds.add(op.id);
             }
         }
@@ -40,14 +40,46 @@ public with sharing class OpportunityTriggerHandler extends TriggerHandler {
                             Opportunity__c = opp.Id,
                             Community_Account__c = commNetRecList[i].Primary_Account__c,
                             Community_Role__c = commNetRecList[i].Primary_Account_Role__c,
-                            Primary_Account_Role_Influence_Weight__c = DEFAULT_INFLUENT_WEIGHT
+                            Primary_Account_Role_Influence_Weight__c = DEFAULT_INFLUENT_WEIGHT,
+                            isPrimary__c = false
                         );
                         recordsListToUpsert.add(newONR);
                     }
                 }
             }
         }
-        upsert recordsListToUpsert;
+        if(recordsListToUpsert.size() > 0) {
+            upsert recordsListToUpsert;
+        }
+    }
+
+    public void deleteNotPrimaryCommNetRecordsWhenOppReopen() {
+        List<Community_Network__c> recordsListToDelete = new List<Community_Network__c>();
+        List<Community_Network__c> comRecListToUpdate = new List<Community_Network__c>();
+        Set<Id> oppIds = new Set<Id>();
+        for (Opportunity op : triggerRecordsList) {
+            if ((op.StageName != STAGE_CLOSED_WON && op.StageName != STAGE_CLOSED_LOST && op.StageName != STAGE_NO_BID) &&
+            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_CLOSED_WON) ||
+            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_CLOSED_LOST) ||
+            (((Opportunity)Trigger.oldMap.get(op.Id)).StageName == STAGE_NO_BID)) {
+                oppIds.add(op.id);
+            }
+        }
+        for (Community_Network__c comm : [SELECT Id, Community_Account__c, Community_Role__c, Opportunity__c, isPrimary__c FROM Community_Network__c WHERE Opportunity__r.Id IN :oppIds]) {
+            if (comm.isPrimary__c == true) {
+                comm.Community_Account__c = null;
+                comm.Community_Role__c = null;
+                comRecListToUpdate.add(comm);
+            } else {
+                recordsListToDelete.add(comm);
+            }
+        }
+        if (comRecListToUpdate.size() > 0) {
+            update comRecListToUpdate;
+        }
+        if (recordsListToDelete.size() > 0) {
+            delete recordsListToDelete;
+        }
     }
 
     public override void afterInsert() {
@@ -56,6 +88,7 @@ public with sharing class OpportunityTriggerHandler extends TriggerHandler {
 
     public override void afterUpdate() {
         updateRelatedONR();
+        deleteNotPrimaryCommNetRecordsWhenOppReopen();
     }
 
 }

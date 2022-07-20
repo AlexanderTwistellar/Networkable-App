@@ -28,8 +28,17 @@ public with sharing class CommunityNetworkTriggerHandler extends TriggerHandler 
         }
     }
 
+    public void makeCommunityNetworkRecordIsPrimary() {
+        for (Community_Network__c comNet : triggerRecordsList) {
+            if (comNet.Community_Account__c == null && comNet.Community_Role__c == null) {
+                comNet.isPrimary__c = true;
+            }
+        }
+    }
+
     public override void beforeInsert() {
         populateRecordFields();
+        makeCommunityNetworkRecordIsPrimary();
     }
 
     public override void beforeUpdate() {
